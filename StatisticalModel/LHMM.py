@@ -11,70 +11,62 @@ Date:2017.05.20
 import numpy as np
 from StatisticalModel.DataInitialization import DataInitialization
 
-datapath = '/home/luochong/PycharmProjects/ASR/StatisticalModel/HiddenMarkovModelDataSet.csv'
-
 
 class LHMM(DataInitialization):
-    def __init__(self, states, observations, T=None, A=None, B=None, profunc=None, π=None):
+    def __init__(self, states, log, t=None, transmat=None, profunc=None, probmat=None, pi=None):
         """
-                参数说明：
-                1、states ——状态集合(字典集:{序号:状态})
-                2、observations ——观测集合(字典集:{观测:序号})
-                3、T ——观测序列长度
-                4、A ——状态转移矩阵(N*N，N为状态数)
-                5、B ——混淆矩阵(Confusion Matrix)/观测矩阵  (N*M，N为状态数，M为观察数)
-                6、profunc ——代替混淆矩阵的概率密度函数，如GMM
-                7、π ——初始概率矩阵(1*M，M为观测数)
-
-                *参数初值通常用聚类算法K-Means提前处理
-            """
+        对数计算的隐马尔可夫模型
+        --------------------
+        *模型参数初值通常用聚类算法K-Means提前处理
+        :param states: 状态集合(字典集:{序号:状态})
+        :param log: 记录日志
+        :param t: 观测序列长度
+        :param transmat: 状态转移矩阵(N*N，N为状态数)
+        :param profunc: 代替混淆矩阵的概率密度函数，如GMM
+        :param probmat: 混淆矩阵/观测矩阵(当profunc不为None时，使用profunc计算观测矩阵，并覆盖probmat)
+        :param pi: 初始概率矩阵(1*M，M为观测数)
+        """
         super().__init__()
         '''状态集合'''
         self.__states = states
         self.__hmm_size = len(states)
-        '''观测集合'''
-        self.__observations = observations
+
+        '''记录日志'''
+        self.log = log
         '''观测序列长度'''
-        if T is None:
-            self.__T = []
+        if t is None:
+            self.__t = []
         else:
-            self.__T = T
+            self.__t = t
 
         '''声明参数'''
         """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-        self.__A = None
-        self.__B = None
-        self.__profunction = None
-        self.__π = None
+        self.__transmat = None
+        self.__profunction = profunc
+        self.__pi = None
         """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-        '''用以判断B是否为矩阵'''
-        self.__matrix = True
-
         '''状态转移矩阵'''
-        if A is not None:
-            self.__A = A
+        if transmat is not None:
+            self.__transmat = transmat
         else:
-            self.__A = 1. / len(states) * np.ones((len(states), len(states)))
+            self.__transmat = 1. / len(states) * np.ones((len(states), len(states)))
 
-        if B is not None:
-            '''混淆矩阵/观测矩阵'''
-            self.__B = B
-        elif profunc is not None:
-            '''概率密度函数'''
-            self.__matrix = False
-            self.__profunction = profunc
-        else:
-            self.__B = 1. / len(observations) * np.ones((len(states), len(observations)))
         '''初始概率矩阵'''
-        if π is not None:
-            self.__π = π
+        if pi is not None:
+            self.__pi = pi
         else:
-            self.__π = 1. / len(states) * np.ones((len(states),))
+            self.__pi = 1. / len(states) * np.ones((len(states),))
+
+        assert profunc is not None or probmat is not None, '必须为 profunc 和 probmat 之一指定参数值'
+
         '''运算结果'''
-        self.__result_f = None  # 钱箱算法结果保存
+        self.__result_f = None  # 前向算法结果保存
         self.__result_b = None  # 后向算法结果保存
-        self.__result_p = None  # 概率密度函数计算结果
+        ''''''
+        self.__result_p = probmat  # 概率密度函数计算结果[probmat_1,probmat_2,...]  理论上profunc和probmat只能一个不为None
+        # (list中有N个probmat，N为数据量，probmat为numpy.array形式，原先为批量训练设计，现做保留)
+        ''''''
         '''前一次概率估计结果(向前算法计算)'''
         self.__p = None
 
@@ -86,20 +78,12 @@ class LHMM(DataInitialization):
         return self.__states
 
     @property
-    def observations(self):
-        return self.__observations
+    def t(self):
+        return self.__t
 
     @property
-    def T(self):
-        return self.__T
-
-    @property
-    def A(self):
-        return self.__A
-
-    @property
-    def B(self):
-        return self.__B
+    def transmat(self):
+        return self.__transmat
 
     @property
     def B_p(self):
@@ -110,8 +94,8 @@ class LHMM(DataInitialization):
         return self.__result_p
 
     @property
-    def π(self):
-        return self.__π
+    def pi(self):
+        return self.__pi
 
     @property
     def profunction(self):
@@ -166,16 +150,10 @@ class LHMM(DataInitialization):
     @staticmethod
     def __log_sum_exp(p_list):
         """计算和的对数"""
-        try:
-            max_p = max(p_list)
-        except ValueError:
-            print(p_list)
+        max_p = max(p_list)
         if abs(max_p) == float('inf'):
             return max_p
-        log_sum_exp = 0.
-        for index_ in range(len(p_list)):
-            log_sum_exp += np.exp(p_list[index_] - max_p)
-        log_sum_exp = max_p + np.log(log_sum_exp)
+        log_sum_exp = max_p + np.log(np.sum(np.exp(p_list - max_p)))
         return log_sum_exp
 
     """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -197,99 +175,62 @@ class LHMM(DataInitialization):
         :return: None
         """
         super().clear_data()
-        self.__T = []
+        self.__t = []
 
     """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
     '''改变参数'''
 
-    def change_T(self, t):
+    def change_t(self, t):
         """
         改变序列长度，用于在使用不定长度训练数据前
         :param t: 新的序列长度
         :return: None
         """
-        self.__T = t
+        self.__t = t
 
     def add_T(self, t):
-        self.__T.extend(t)
+        self.__t.extend(t)
 
-    def change_π(self, π):
-        self.__π = π
+    def change_pi(self, pi):
+        self.__pi = pi
 
-    def change_A(self, A):
-        self.__A = A
-
-    def change_B(self, B):
-        self.__B = B
+    def change_A(self, transmat):
+        self.__transmat = transmat
 
     """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
     def __forward_algorithm(self, result_f_index):
         """
              前向算法
-
-        参数说明：
-            A状态转移矩阵
-            B混淆矩阵
-            result ——结果集
-            O ——观测序列(长度为T)
-
+        :param result_f_index: 数据序号
         """
-        if self.__matrix:
-            '''通过观测矩阵计算初值'''
-            index = self.__observations[self.data[result_f_index][0]]
-            self.__result_f[result_f_index][:, 0] = np.log(self.__π) + np.log(self.__B[:, index])
+        '''通过概率密度函数计算计算初值'''
+        self.__result_f[result_f_index][:, 0] = np.log(self.__pi) + self.__result_p[result_f_index][:, 0]
 
-            '''递推计算'''
-            for i in range(1, self.__T[result_f_index]):
-                p = LHMM.__matrix_dot(self.__result_f[result_f_index][:, i - 1], self.__A, axis=1)
-                index = self.__observations[self.data[result_f_index][i]]
-                self.__result_f[result_f_index][:, i] = p + np.log(self.__B[:, index])
-
-        else:
-            '''通过概率密度函数计算计算初值'''
-            self.__result_f[result_f_index][:, 0] = np.log(self.__π) + self.__result_p[result_f_index][:, 0]
-
-            '''递推计算'''
-            for i in range(1, self.__T[result_f_index]):
-                '''对列向量分片，使之等于子字hmm的状态数'''
-                p = LHMM.__matrix_dot(self.__result_f[result_f_index][:, i - 1], self.__A, axis=1)
-                self.__result_f[result_f_index][:, i] = p + self.__result_p[result_f_index][:, i]
+        '''递推计算'''
+        for i in range(1, self.__t[result_f_index]):
+            '''对列向量分片，使之等于子字hmm的状态数'''
+            p = LHMM.__matrix_dot(self.__result_f[result_f_index][:, i - 1], self.__transmat, axis=1)
+            self.__result_f[result_f_index][:, i] = p + self.__result_p[result_f_index][:, i]
 
     def __backward_algorithm(self, result_b_index):
         """
              后向算法
-    
-        参数说明：
-            A状态转移矩阵
-            B混淆矩阵
-            result ——结果集
-            O ——观测序列(长度为T)
-    
+        :param result_b_index: 数据序号
         """
-        '''计算最后时刻β=1'''
-
-        if self.__matrix:
-            '''递推计算'''
-            for i in range(self.__T[result_b_index] - 2, -1, -1):
-                p = LHMM.__matrix_dot(self.__result_b[result_b_index][:, i + 1], self.__A, axis=0)
-                index = self.__observations[self.data[result_b_index][i + 1]]
-                self.__result_b[result_b_index][:, i] = p + np.log(self.__B[:, index])
-
-        else:
-            '''如果观测矩阵为概率密度函数'''
-            '''递推计算'''
-            for i in range(self.__T[result_b_index] - 2, -1, -1):
-                p = LHMM.__matrix_dot(self.__result_b[result_b_index][:, i + 1], self.__A, axis=0)
-                self.__result_b[result_b_index][:, i] = p + self.__result_p[result_b_index][:, i + 1]
+        '''如果观测矩阵为概率密度函数'''
+        '''递推计算'''
+        for i in range(self.__t[result_b_index] - 2, -1, -1):
+            p = LHMM.__matrix_dot(self.__result_b[result_b_index][:, i + 1], self.__transmat, axis=0)
+            self.__result_b[result_b_index][:, i] = p + self.__result_p[result_b_index][:, i + 1]
 
     def __generate_result(self):
         """
-        更新结果矩阵
+            更新概率累积矩阵
         """
-        if len(self.__T) == 0:
-            '''若self.__T is None,则需根据每个数据的长度初始化self.__T'''
-            self.__T = [len(self.data[index]) for index in range(len(self.data))]
+        if len(self.__t) == 0:
+            '''若self.__t is None,则需根据每个数据的长度初始化self.__t'''
+            self.__t = [len(self.data[index]) for index in range(len(self.data))]
 
         """一个result_f/result_b---------> 一个data"""
 
@@ -297,11 +238,11 @@ class LHMM(DataInitialization):
             self.__result_f = []
             self.__result_b = []
             for _ in range(len(self.data)):
-                self.__result_f.append(np.zeros((len(self.__states), self.__T[_])))
-                self.__result_b.append(np.zeros((len(self.__states), self.__T[_])))
+                self.__result_f.append(np.zeros((len(self.__states), self.__t[_])))
+                self.__result_b.append(np.zeros((len(self.__states), self.__t[_])))
             if self.__profunction is not None:
                 '''计算观测概率的对数值'''
-                self.cal_observation_pro(self.data, self.__T, normalize=True)
+                self.cal_observation_pro(self.data, self.__t, normalize=False)
 
         """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
@@ -309,34 +250,18 @@ class LHMM(DataInitialization):
             self.__forward_algorithm(data_index)
             self.__backward_algorithm(data_index)
 
-    def __two_states_probability(self, t, result_index, q1=None, q2=None, index1=None, index2=None):
+    def __two_states_probability(self, t, result_index, index):
         """
             已知连续两个状态概率计算
-    
-        参数：
-            1、t为状态时间
-            2、O ——观测序列
-            3、q1、q2为状态
-            4、index1、index2为状态所在位置
+        :param t: 状态时间
+        :param result_index: 概率累积矩阵(前向&后向)位置
+        :param index: state状态所在位置
+        :return:
         """
-        if index1 is None:
-            if q1 is None:
-                raise Exception('Error: 状态参数q1缺失')
-            index1 = self.__states[q1]
-        if index2 is None:
-            if q2 is None:
-                raise Exception('Error: 状态参数q2缺失')
-            index2 = self.__states[q2]
-
-        p1 = self.__result_f[result_index][index1][t]
-        p2 = self.__result_b[result_index][index2][t + 1]
-
-        if self.__matrix:
-            _ = self.__observations[self.data[result_index][index2]]
-            p = p1 + np.log(self.__A[index1][index2]) + np.log(self.__B[index2][_]) + p2
-        else:
-            p = p1 + np.log(self.__A[index1][index2]) + self.__result_p[result_index][index2][t + 1] + p2
-        return p
+        p1 = self.__result_f[result_index][index][t] * np.ones((len(self.__states),))
+        p2 = self.__result_b[result_index][:, t + 1]
+        p_arr = p1 + np.log(self.__transmat[index]) + self.__result_p[result_index][:, t + 1] + p2
+        return p_arr
 
     """
         模型训练（Baum-Welch算法/EM算法）
@@ -372,122 +297,84 @@ class LHMM(DataInitialization):
 
     """     Maximization    """
 
-    def __maximization(self, correct=None):
+    def __maximization(self, show_a=False):
         """
         最大似然估计
-        :param correct: 参数类型为函数，用于修正状态转移矩阵，返回值须为状态转移矩阵
+        :param show_a: 显示重估后的状态转移矩阵
         """
-
-        def cal_ξ_1(t_, result_index):
+        def cal_ksai_1(t_, result_index):
             """计算分母"""
-            sum_ξ = []
-            for m in range(len(self.__states)):
-                for n in range(len(self.__states)):
-                    sum_ξ.append(self.__two_states_probability(t_, result_index, index1=m, index2=n))
-            return LHMM.__log_sum_exp(sum_ξ)
+            sum_ksai = self.__two_states_probability(t_, result_index, 0)
+            for m in range(1, len(self.__states)):
+                sum_ksai = np.append(sum_ksai, self.__two_states_probability(t_, result_index, m), axis=0)
+            return LHMM.__log_sum_exp(sum_ksai)
 
-        def cal_ξ_2(i_, j_, t_, result_index, sum_ξ):
+        def cal_ksai_2(i_, t_, result_index, sum_ksai):
             """计算分子"""
-            p = self.__two_states_probability(t_, result_index, index1=i_, index2=j_)
-            return p - sum_ξ
+            p = self.__two_states_probability(t_, result_index, i_)
+            return p - sum_ksai
 
-        def cal_γ(t_, result_index):
-            _γ = self.__result_f[result_index][:, t_] + self.__result_b[result_index][:, t_]
-            _sum = LHMM.__log_sum_exp(_γ)
-            return _γ - _sum
+        def cal_gamma(t_, result_index):
+            _gamma = self.__result_f[result_index][:, t_] + self.__result_b[result_index][:, t_]
+            _sum = LHMM.__log_sum_exp(_gamma)
+            return _gamma - _sum
 
         '''更新状态转移矩阵'''
         size = len(self.__states)
-        ξ_list = [[[] for _ in range(size)] for _ in range(size)]
-        ξ = np.zeros((size, size))
-        γ_list = []
-        γ = np.zeros((size,))
-        π_list = []
-        π = np.zeros_like(self.__π)
+        ksai_list = [[[] for _ in range(size)] for _ in range(size)]
+        ksai = np.zeros((size, size))
+        gamma_list = []
+        gamma = np.zeros((size,))
+        pi_list = []
+        pi = np.zeros_like(self.__pi)
 
         for index in range(len(self.data)):
-            for t in range(self.__T[index] - 1):
-                sum_ = cal_ξ_1(t, index)
-                for i in range(len(self.__states)):
-                    for j in range(len(self.__states)):
-                        ξ_list[i][j].append(cal_ξ_2(i, j, t, index, sum_))
-                γ_list.append(cal_γ(t, index))
-            π_list.append(cal_γ(0, index))
+            for t in range(self.__t[index] - 1):
+                sum_ = cal_ksai_1(t, index)
+                for i in range(size):
+                    p_arr = cal_ksai_2(i, t, index, sum_)
+                    for j in range(size):
+                        ksai_list[i][j].append(p_arr[j])
+                gamma_list.append(cal_gamma(t, index))
+            pi_list.append(cal_gamma(0, index))
 
-        '''计算ξ'''
+        '''计算ksai'''
         for i in range(size):
             for j in range(size):
-                ξ[i][j] = LHMM.__log_sum_exp(ξ_list[i][j])
+                ksai[i][j] = LHMM.__log_sum_exp(ksai_list[i][j])
 
-        '''计算γ'''
-        γ_list = np.array(γ_list)
+        '''计算gamma'''
+        gamma_list = np.array(gamma_list)
         for i in range(size):
-            γ[i] = LHMM.__log_sum_exp(γ_list[:, i])
+            gamma[i] = LHMM.__log_sum_exp(gamma_list[:, i])
 
-        '''计算π'''
-        π_list = np.array(π_list)
+        '''计算pi'''
+        pi_list = np.array(pi_list)
         for i in range(size):
-            π[i] = LHMM.__log_sum_exp(π_list[:, i])
-        self.__π = np.exp(π)
+            pi[i] = LHMM.__log_sum_exp(pi_list[:, i])
+        self.__pi = np.exp(pi)
 
-        γ[np.where(γ == -float('inf'))] = 0.
+        gamma[np.where(gamma == -float('inf'))] = 0.
 
-        self.__A = ξ - γ.reshape((len(self.__states), 1))
+        self.__transmat = ksai - gamma.reshape((len(self.__states), 1))
 
         '''规范化'''
         for i in range(len(self.__states)):
-            normalize_num = LHMM.__log_sum_exp(self.__A[i])
+            normalize_num = LHMM.__log_sum_exp(self.__transmat[i])
             if np.isinf(normalize_num):
                 '''inf相减为nan，故略去'''
                 continue
-            self.__A[i] -= normalize_num
+            self.__transmat[i] -= normalize_num
 
-        self.__A = np.exp(self.__A)
-        print(self.__A)
+        self.__transmat = np.exp(self.__transmat)
+        if show_a:
+            self.log.note('\n' + str(self.__transmat), cls='i')
 
-        if correct is not None:
-            '''修正状态转移矩阵'''
-            self.__A = correct(self.__A)
-
-        '''更新观测矩阵'''
-
-        if self.__matrix:
-
-            """补加时间位置为T的状态估计值"""
-
-            γ_add_list = []
-            for index in range(len(self.data)):
-                γ_add_list.append(cal_γ(self.__T[index] - 1, index))
-            γ_add_list = np.array(γ_add_list)
-            tmp_γ = γ.reshape(1, size)
-            tmp_γ = np.append(tmp_γ, γ_add_list, axis=0)
-
-            for i in range(size):
-                γ[i] = LHMM.__log_sum_exp(tmp_γ[:, i])
-
-            tmp_γ_ = [[] for _ in range(len(self.__observations))]
-            γ_ = np.zeros((size, len(self.__observations)))
-
-            for k in range(len(self.__observations)):
-                for index in range(len(self.data)):
-                    for t in range(self.__T[index]):
-                        if self.__observations[self.data[index][t]] == k:
-                            tmp_γ_[k].append(cal_γ(t, index))
-
-            for i in range(len(self.__observations)):
-                tmp_p_list = np.array(tmp_γ_[i])
-                for j in range(size):
-                    γ_[j][i] = LHMM.__log_sum_exp(tmp_p_list[:, j])
-            self.__B = γ_ - γ.reshape((size, 1))
-            self.__B = np.exp(self.__B)
-
-        else:
-            '''GMM暂不更新'''
-            pass
-
-    def baulm_welch(self, correct=None, show_q=False):
+    def baulm_welch(self, show_q=False, show_a=False):
         """
             调用后自动完成迭代的方法
+        :param show_q: 显示当前似然度
+        :param show_a: 显示重估后的状态转移矩阵
         :return: 收敛后的参数
         """
         '''计算前向后向结果'''
@@ -495,118 +382,78 @@ class LHMM(DataInitialization):
         q_value = -float('inf')
         while True:
             if show_q:
-                print('HMM 当前似然度:', q_value)
-            self.__maximization(correct)
+                self.log.note('HMM 当前似然度:%f' % q_value, cls='i')
+            self.__maximization(show_a=show_a)
             self.__generate_result()
             q_ = self.q_function()
-            if q_ - q_value > 1.28:
+            if q_ > q_value:
                 q_value = q_
             else:
                 break
 
     @staticmethod
-    def viterbi(states=None, observations=None, A=None, B=None, π=None, O=None, O_size=None, matrix=True,
-                convert=False, end_state_back=False):
+    def viterbi(log, states, transmat, prob, pi, convert=False, end_state_back=False, show_mark_state=False):
         """
-    
-              维特比算法
-    
-            基于动态规划，找出最优路径，用于解决隐马尔可夫模型中的预测问题
-            
+            维特比算法
+                --基于动态规划，找出最优路径，用于解决隐马尔可夫模型中的预测问题
+        :param log: 记录日志
         :param states:状态集合
-        :param observations:观测集合
-        :param A:状态转移矩阵
-        :param B:观测矩阵或概率密度函数
-        :param π:初始概率矩阵
-        :param O: 观测数据(若B为观测矩阵，则O为离散观测序列；若B为概率密度函数，则O为特征向量)
-        :param matrix:是否为观测矩阵，True为矩阵，False为概率函数所计算结果集
+        :param transmat:状态转移矩阵
+        :param prob: 概率(评分)矩阵
+        :param pi:初始概率矩阵
         :param convert: convert=False 不将状态转换为标签
         :param end_state_back: 从最后一个状态开始回溯计算路径
+        :param show_mark_state: 显示viterbi路径
         :return: 状态列表
         """
-        if O_size is None:
-            size = len(O)
-        else:
-            size = O_size
+        '''数据序列长度'''
+        s_len, t = prob.shape
+        assert s_len == len(states), '状态数不对应概率输出'
         '''最终路径'''
-        mark_state = np.zeros((size,))
+        mark_state = np.zeros((t,))
         '''标注路径'''
-        before_state = [[0 for _ in range(size)] for _ in range(len(states))]
+        before_state = [[0 for _ in range(t)] for _ in range(s_len)]
 
         '''对数运算消除警告'''
         np.seterr(divide='ignore')
+        p_list = np.log(pi) + prob[:, 0]
         ''''''
-        if matrix:
-            '''B为观测矩阵'''
-            index = observations[O[0]]
-            p_list = np.log10(π) + np.log10(B[:, index])
-            for i in range(1, size):
-                p_ = np.zeros_like(p_list)
-                index = observations[O[i]]
-                for j in range(len(states)):
-                    tmp = p_list + np.log10(A[:, j])
-                    max_p = tmp.max()
-                    p_[j] = max_p
-                    '''最大值所在index'''
-                    max_index = np.where(tmp == max_p)[0][0]
-                    '''指向前面最优状态'''
-                    before_state[max_index][i] = j
-                p_list = p_ + np.log10(B[:, index])
-        else:
-            '''B为GMM评分函数'''
-            profunction = B
-            p_list = np.log10(π) + profunction[:, 0]
-            for i in range(1, size):
-                p_ = np.zeros_like(p_list)
-                for j in range(len(states)):
-                    tmp = p_list + np.log10(A[:, j])
-                    max_p = tmp.max()
-                    p_[j] = max_p
-                    '''最大值所在index'''
-                    max_index = np.where(tmp == max_p)[0][0]
-                    '''指向前面最优状态'''
-                    before_state[j][i] = max_index
-                p_list = p_ + profunction[:, i]
+        max_index = 0.
+        for i in range(1, t):
+            p_ = np.zeros_like(p_list)
+            for j in range(s_len):
+                tmp = p_list + np.log(transmat[:, j])
+                max_p = tmp.max()
+                p_[j] = max_p
+                '''最大值所在index'''
+                max_index = np.where(tmp == max_p)[0][0]
+                '''指向前面最优状态'''
+                before_state[j][i] = max_index
+            p_list = p_ + prob[:, i]
 
         if end_state_back:
             end_index = len(p_list) - 4 + np.where(p_list[-4:] == p_list[-4:].max())[0][0]
             point = p_list[end_index]
-            mark_state[size - 1] = end_index
+            mark_state[t - 1] = end_index
         else:
             max_index = np.where(p_list == p_list.max())[0][0]
             point = p_list[max_index]
-            mark_state[size - 1] = max_index
+            mark_state[t - 1] = max_index
 
         '''回溯找出所有状态'''
         before_index = max_index
-        for _ in range(size - 1, -1, -1):
+        for _ in range(t - 1, -1, -1):
             mark_state[_] = before_index
             before_index = before_state[before_index][_]
 
         if convert:
-            c_mark_state = [None for _ in range(size)]
+            c_mark_state = [None for _ in range(t)]
             for _ in range(len(mark_state)):
                 c_mark_state[_] = states[mark_state[_]]
             c_mark_state = np.array(c_mark_state)
-            print(c_mark_state)
+            if show_mark_state:
+                log.note(c_mark_state, cls='i')
             return point, c_mark_state
+        if show_mark_state:
+            log.note(mark_state, cls='i')
         return point, mark_state
-
-
-if __name__ == '__main__':
-    states = {0: '盒子1', 1: '盒子2', 2: '盒子3'}
-    observations = {'红': 0, '白': 1}
-    # a = np.array([[0.5, 0.2, 0.3], [0.3, 0.5, 0.2], [0.2, 0.3, 0.5]])
-    # b = np.array([[0.5, 0.5], [0.4, 0.6], [0.7, 0.3]])
-    # pi = np.array([0.2, 0.4, 0.4])
-    # t = 4
-    hmm = LHMM(states, observations)
-    hmm.init_data(continuous=False, matrix=False, hasmark=False, datapath=datapath)
-    hmm.baulm_welch(show_q=True)
-    a = hmm.A
-    b = hmm.B
-    pi = hmm.π
-    print('初始概率矩阵：\n', pi)
-    print('状态转移矩阵：\n', a)
-    print('观测矩阵：\n', b)
-    hmm.viterbi(states, observations, a, b, pi, ['红', '红', '红', '白', '白'])
