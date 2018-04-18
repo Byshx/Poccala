@@ -10,29 +10,40 @@ Author:Byshx
 Date:2017.04.04
 
 """
-import pyaudio
+import os
 import sys
 import wave
 import math
-import numpy as np
 import pylab
+import pyaudio
+import numpy as np
+from contextlib import contextmanager
 
-"""音频地址"""
-audiopath = sys.path[1] + '/AcousticModel/Audio/lib/2.wav'
-"""音频录制地址"""
 
-
-# recordpath = '/home/luochong/PycharmProjects/ASR/AcousticModel/Audio/wavedata/Test/2.wav'
+@contextmanager
+def ignore_stderr():
+    """捕捉pyaudio错误信息"""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    old_stderr = os.dup(2)
+    sys.stderr.flush()
+    os.dup2(devnull, 2)
+    os.close(devnull)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr, 2)
+        os.close(old_stderr)
 
 
 class AudioProcessing(object):
     def __init__(self):
         """"""
-        self.__pyaudio = pyaudio.PyAudio()
+        with ignore_stderr():
+            self.__pyaudio = pyaudio.PyAudio()
 
     """音频播放"""
 
-    def play(self, chunk=1024, input_path=audiopath):
+    def play(self, input_path, chunk=1024):
         """"""
         '''读取音频文件'''
         wav = wave.open(input_path, 'rb')
@@ -204,7 +215,7 @@ class AudioProcessing(object):
             step = int(framesize * overlap)  # 帧移动步长
             framenum = 1 + math.ceil((samplenum - framesize) / step)  # 分帧的总帧数
             padnum = (framenum - 1) * step + framesize
-            zeros = np.zeros((padnum - samplenum,))
+            zeros = np.zeros((int(padnum - samplenum),))
             padsignal = np.concatenate((signal, zeros))
 
             indices = np.tile(np.arange(0, framesize), (framenum, 1)) + np.tile(np.arange(0, framenum * step, step),
@@ -333,11 +344,11 @@ class AudioProcessing(object):
             return fbank, energy
 
         @staticmethod
-        def dct(s, l=13):
+        def dct(s, rank=13):
             """
             离散余弦变换(Discrete Cosine Transform,DCT)
             :param s: 滤波器输出的能量
-            :param l: MFCC的阶数，通常取12~16
+            :param rank: MFCC的阶数，通常取12~16
             :return:
             """
             '''滤波器的对数能量'''
@@ -348,10 +359,10 @@ class AudioProcessing(object):
             framenum = len(s)
             '''前系数'''
             coefficient = 2 / filters_num ** 0.5
-            dct_frame = np.zeros((framenum, l))
+            dct_frame = np.zeros((framenum, rank))
             '''MFCC系数集合'''
             for i in range(framenum):
-                for j in range(l):
+                for j in range(rank):
                     sum_ = 0.
                     for k in range(filters_num):
                         sum_ += coefficient * log_energy[i][k] * math.cos(math.pi * (2 * k - 1) * j / (2 * filters_num))
@@ -359,7 +370,7 @@ class AudioProcessing(object):
             return dct_frame
 
         @staticmethod
-        def lifter(cepstra, l=22):
+        def lifter(cepstra, lifter=22):
             """
             由于系数低位的值过小，需要向前“抬升”。源于线性预测分析。
 
@@ -368,20 +379,20 @@ class AudioProcessing(object):
             diagonal covariances to be used in the HMMs. However, one minor problem with them is that the higher order
             cepstra are numerically quite small and this results in a very wide range of variances when going from the
             low to high cepstral coefficients . HTK does not have a problem with this but for pragmatic reasons such as
-            displaying model parameters, flooring variances, etc., it is convenient to re-scale the cepstral coefficients
+            displaying model parameters, flooring variances, etc, it is convenient to re-scale the cepstral coefficients
             to have similar magnitudes. This is done by setting the configuration parameter CEPLIFTER  to some value L
-            to lifter the cepstra according to the following formula
+            to lifter the cepstra according to the following formula.
 
             来源:
                 http://www.ee.columbia.edu/ln/LabROSA/doc/HTKBook21/node53.html#eceplifter
 
             :param cepstra:梅尔倒谱系数
-            :param l: the liftering coefficient to use. Default is 22. L <= 0 disables lifter.
+            :param lifter: the liftering coefficient to use. Default is 22. L <= 0 disables lifter.
             """
-            if l > 0:
+            if lifter > 0:
                 nframes, ncoeff = np.shape(cepstra)
                 n = np.arange(ncoeff)
-                lift = 1 + (l / 2.) * np.sin(np.pi * n / l)
+                lift = 1 + (lifter / 2.) * np.sin(np.pi * n / lifter)
                 return lift * cepstra
             else:
                 return cepstra
@@ -420,7 +431,7 @@ class AudioProcessing(object):
             '''三角带通滤波器'''
             fbank, energy = self.mel_filter_bank(fft, params[2], nfft=nfft)
             '''离散余弦变换获得标准MFCC参数'''
-            standard_coefficient = self.dct(fbank, l=self.__vec_num)
+            standard_coefficient = self.dct(fbank, rank=self.__vec_num)
             '''将第一位替换为帧能量'''
             if cal_energy:
                 standard_coefficient[:, 0] = np.log(energy)
@@ -447,7 +458,7 @@ class AudioProcessing(object):
         def init_mfcc(self, mfcc):
             self.__mfcc = mfcc
 
-        def mel_distance(self, λ=0.5):
+        def mel_distance(self, alpha=0.5):
             """
             计算梅尔倒谱距离
             :return: 每个帧与噪声的梅尔倒谱距离
@@ -457,7 +468,7 @@ class AudioProcessing(object):
             noise = 1. / self.__simple_size * simple.sum(axis=0)
             '''迭代更新噪声近似值'''
             for i in range(self.__simple_size):
-                noise = λ * noise + (1 - λ) * self.__mfcc[i]
+                noise = alpha * noise + (1 - alpha) * self.__mfcc[i]
             '''计算所有帧与噪声梅尔特征向量距离'''
             mel_distance = []
             for i in range(len(self.__mfcc)):
@@ -510,10 +521,9 @@ class AudioProcessing(object):
             min_distance = mel_distance.min()
 
             '''阈值'''
-            β = d_mid * (max_distance - min_distance) / max_distance
+            beta = d_mid * (max_distance - min_distance) / max_distance
 
-            check = mel_distance - np.ones_like(mel_distance) * β
-            # print(len(self.__mfcc), β)
+            check = mel_distance - np.ones_like(mel_distance) * beta
             if show_pic:
                 x1 = [_ for _ in range(len(self.__mfcc))]
                 y1 = mel_distance.tolist()
@@ -531,14 +541,12 @@ class AudioProcessing(object):
             mfcc = self.detect(mel_distance_osf, show_pic=show_pic)
             return mfcc
 
-
-if __name__ == '__main__':
-    ap = AudioProcessing()
-    mfcc = ap.MFCC()
-    mfcc.init_audio(path=audiopath, show_pic=True)
-    m = mfcc.mfcc(nfft=1024, d1=True, d2=True)
-    vad = ap.VAD()
-    vad.init_mfcc(m)
-    m_ = vad.mfcc(show_pic=True)
-    # recordpath = '/home/luochong/PycharmProjects/ASR/AcousticModel/Audio/lib/76.wav'
-    # ap.record(3, output_path=recordpath)
+#
+# if __name__ == '__main__':
+#     ap = AudioProcessing()
+#     mfcc = ap.MFCC()
+#     mfcc.init_audio(path=path, show_pic=True)
+#     m = mfcc.mfcc(nfft=512, d1=True, d2=True)
+#     vad = ap.VAD()
+#     vad.init_mfcc(m)
+#     m_ = vad.mfcc(show_pic=True)
