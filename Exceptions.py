@@ -32,6 +32,16 @@ class UnitFileExistsError(FileExistsError):
         return info
 
 
+class ParameterFileExistsError(FileExistsError):
+    def __init__(self, log):
+        self.log = log
+
+    def __str__(self):
+        info = '模型参数文件不存在'
+        self.log.note(info, cls='e')
+        return info
+
+
 class ArgumentNumberError(ValueError):
     def __init__(self, log, *args):
         self.log = log
@@ -124,5 +134,15 @@ class CpuCountError(ValueError):
 
     def __str__(self):
         info = 'cpu数目应为正整数'
+        self.log.note(info, cls='e')
+        return info
+
+
+class ModeError(ValueError):
+    def __int__(self, log):
+        self.log = log
+
+    def __str__(self):
+        info = '不存在的训练方案'
         self.log.note(info, cls='e')
         return info
