@@ -9,25 +9,25 @@ Date: 2018.01.21
 用于控制训练信息的输出
 
 """
+import re
 import os
 import sys
 import time
 from Exceptions import *
 
-PARAMETERS_FILE_PATH = os.path.abspath(os.environ['parameters_file_path'])  # 获取训练参数保存位置，用以保存各参数训练日志
 LOG_FILE_PATH = os.path.abspath(os.environ['log_file_path'])  # 获取主日志文件位置
 
 
 class Log(object):
-    def __init__(self, unit_type, unit=None, job_id=0, console=True):
+    def __init__(self, unit_type, path=None, job_id=0, console=True):
         """
         :param unit_type: 基元类型
-        :param unit: 基元，若基元为None，则将主日志文件作为输出；若基元不为None，则将基元训练日志文件作为输出
+        :param path: 日志输出路径
         :param job_id: 作业id，用于标注并行训练的机器
         :param console: 输出到控制台
         """
-        if unit:
-            path = PARAMETERS_FILE_PATH + '/%s/%s' % (unit_type, unit)
+        if path:
+            path.strip('/')
             self.filename = path + '/log.csv'
         else:
             path = LOG_FILE_PATH
@@ -37,7 +37,7 @@ class Log(object):
             self.filename = path + '/log_%d.csv' % job_id
         self.unit_type = unit_type
         self.log = None
-        self.console = console
+        self.console = console  # 将日志信息输出到控制台的总开关
 
     def generate(self):
         """
@@ -61,20 +61,24 @@ class Log(object):
         if os.path.exists(self.filename):
             os.remove(self.filename)
 
-    def note(self, content, cls):
+    def note(self, content, cls='i', show_console=True):
         """
         记录日志
         :param content: 训练信息内容
         :param cls: 信息类别
+        :param show_console: 展示到控制台
         :return:
         """
         localtime = time.localtime(int(time.time()))
         format_time = time.strftime('%Y-%m-%d %H:%M:%S', localtime)
-        self.output_log(format_time, content, cls)
-        if self.console:
+        if self.console and show_console:
             Log.print_console(format_time, content, cls)
+        pattern = r'\033\[0;30;1m|\033\[0;31;1m|\033\[0m'
+        c_pattern = re.compile(pattern)
+        content = re.sub(c_pattern, '', content)
+        self.__output_log(format_time, content, cls)
 
-    def output_log(self, format_time, content, cls='i'):
+    def __output_log(self, format_time, content, cls='i'):
         """
         将训练信息输出到控制台
         :param format_time: 当前时间
@@ -95,6 +99,7 @@ class Log(object):
             self.log.write(output)
         else:
             raise ClassError('错误类别')
+        self.log.flush()
 
     @staticmethod
     def print_console(format_time, content, cls='i'):
