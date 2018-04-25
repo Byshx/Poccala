@@ -8,29 +8,38 @@ Author:Byshx
 Date:2017.05.20
 
 """
-import numpy as np
+import os
+import time
+import configparser
+from StatisticalModel.util import *
 from StatisticalModel.DataInitialization import DataInitialization
 
 
 class LHMM(DataInitialization):
-    def __init__(self, states, log, t=None, transmat=None, profunc=None, probmat=None, pi=None):
+    def __init__(self, states, statesnum, log, t=None, transmat=None, profunc=None, probmat=None, pi=None,
+                 hmm_list=None, fix_code=0):
         """
         对数计算的隐马尔可夫模型
         --------------------
         *模型参数初值通常用聚类算法K-Means提前处理
         :param states: 状态集合(字典集:{序号:状态})
+        :param statesnum: 状态的数量，取决于HMM的结构，一般情况下statesnum == len(states)。在嵌入式训练时statesnum == 单基元HMM结构
+                          定义的数量，而len(states) == 嵌入式HMM的所有状态数(前后两个非发射状态 + 句子中基元数 * (statesnum - 2))
         :param log: 记录日志
         :param t: 观测序列长度
         :param transmat: 状态转移矩阵(N*N，N为状态数)
         :param profunc: 代替混淆矩阵的概率密度函数，如GMM
-        :param probmat: 混淆矩阵/观测矩阵(当profunc不为None时，使用profunc计算观测矩阵，并覆盖probmat)
+        :param probmat: 混淆矩阵/观测矩阵(当probmat不为None时，profunc仅用来更新参数，probmat参与运算)
         :param pi: 初始概率矩阵(1*M，M为观测数)
+        :param hmm_list: 在嵌入式训练中，需要嵌入式HMM中各基元HMM实例
+        :param fix_code: 从左到右三位分别代表三个参数状态转移矩阵transmat、概率密度函数profunc和初始概率矩阵pi，对应位置为0时不锁定，
+                        为1时锁值不更新。当观测矩阵由probmat产生而不是profunc计算产生时，第二个参数不更新
         """
         super().__init__()
         '''状态集合'''
         self.__states = states
+        self.__statesnum = statesnum
         self.__hmm_size = len(states)
-
         '''记录日志'''
         self.log = log
         '''观测序列长度'''
@@ -38,14 +47,13 @@ class LHMM(DataInitialization):
             self.__t = []
         else:
             self.__t = t
-
         '''声明参数'''
         """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
         self.__transmat = None
         self.__profunction = profunc
         self.__pi = None
-        """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
+        """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
         '''状态转移矩阵'''
         if transmat is not None:
             self.__transmat = transmat
@@ -69,9 +77,25 @@ class LHMM(DataInitialization):
         ''''''
         '''前一次概率估计结果(向前算法计算)'''
         self.__p = None
+        '''用于重估的变量'''
+        self.__ksai = np.zeros((self.__hmm_size, self.__hmm_size))
+        self.__gamma = np.zeros((self.__hmm_size,))
+        '''Accumulator'''
+        self.__ksai_acc = np.log(np.zeros((self.__statesnum - 2, self.__statesnum)))
+        self.__gamma_acc = np.log(np.zeros((self.__statesnum - 2,)))
+        self.__acc_file = True
+        '''子HMM集合，一般为自己本身，但在Embedded Training中，状态转移矩阵包含多个子HMM'''
+        if hmm_list is None:
+            self.__hmm_list = [self]
+        else:
+            self.__hmm_list = hmm_list
+        """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+        '''参数锁定列表'''
+        self.__fix_code = None  # 声明fix_code
+        self.__fix_list = None  # 声明fix_list
+        self.fix_code = fix_code
 
     """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-    '''getter方法'''
 
     @property
     def states(self):
@@ -101,7 +125,40 @@ class LHMM(DataInitialization):
     def profunction(self):
         return self.__profunction
 
+    @property
+    def ksai_acc(self):
+        return self.__ksai_acc
+
+    @property
+    def gamma_acc(self):
+        return self.__gamma_acc
+
+    @property
+    def fix_code(self):
+        return self.__fix_code
+
+    @fix_code.setter
+    def fix_code(self, fix_code):
+        self.__fix_code = fix_code
+        self.__fix_list = [bool(fix_code & 2 ** e) for e in range(2, -1, -1)]
+        if self.__profunction is None and self in self.__hmm_list:
+            self.__fix_list[1] = True
+
     """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+    def add_acc(self, ksai_value, gamma_value):
+        """
+        累加
+        :param ksai_value: ksai累加值
+        :param gamma_value: gamma累加值
+        :return:
+        """
+        '''累加ksai'''
+        ksai_array = [self.__ksai_acc, ksai_value]
+        self.__ksai_acc = matrix_log_sum_exp(ksai_array, axis_x=self.__statesnum - 2)
+        '''累加gamma'''
+        gamma_array = [self.__gamma_acc.reshape(1, -1), gamma_value.reshape(1, -1)]
+        self.__gamma_acc = matrix_log_sum_exp(gamma_array, axis_x=1).reshape(-1, )
 
     def cal_observation_pro(self, data, data_t, normalize=False, standard=False):
         """
@@ -119,54 +176,130 @@ class LHMM(DataInitialization):
             normalize_array = np.zeros((len(self.__states), 1))  # 规范化除数(对数形式)
             for i in range(len(self.__states)):
                 observations_pro.append(
-                    [self.__profunction[i].point(data[d][_], log=True, standard=standard) for _ in range(data_t[d])])
+                    [self.__profunction[i].point(data[d][_], log=True, standard=standard, record=True) for _ in
+                     range(data_t[d])])
             if normalize:
                 for j in range(len(self.__states)):
-                    normalize_array[j][0] = LHMM.__log_sum_exp(observations_pro[j])
+                    normalize_array[j][0] = log_sum_exp(observations_pro[j])
             observations_pro = np.array(observations_pro) - normalize_array
             """"""
             data_p.append(observations_pro)
         self.__result_p = data_p
 
-    @staticmethod
-    def __matrix_dot(data1, data2, axis=0, log=True):
-        """矩阵相乘"""
-        p = []
-        i, j = data2.shape
-        if log:
-            data_2 = np.log(data2)
-        else:
-            data_2 = data2
-        if axis == 0:
-            for index in range(i):
-                tmp_p_list = data1 + data_2[index, :]
-                p.append(LHMM.__log_sum_exp(tmp_p_list))
-        elif axis == 1:
-            for index in range(j):
-                tmp_p_list = data1 + data_2[:, index]
-                p.append(LHMM.__log_sum_exp(tmp_p_list))
-        return np.array(p)
+    """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+    """参数操作"""
 
-    @staticmethod
-    def __log_sum_exp(p_list):
-        """计算和的对数"""
-        max_p = max(p_list)
-        if abs(max_p) == float('inf'):
-            return max_p
-        log_sum_exp = max_p + np.log(np.sum(np.exp(p_list - max_p)))
-        return log_sum_exp
+    def save_parameter(self, path):
+        """
+        参数保存
+        :param path: 参数保存地址
+        :type path: str
+        :return:
+        """
+        path.strip('/')
+        path = path + '/HMM'
+        if not os.path.exists(path):
+            os.mkdir(path)
+        np.save(path + '/transmat.npy', self.__transmat)  # 保存状态转移矩阵
+        np.save(path + '/pi.npy', self.__pi)  # 保存初始概率矩阵
+        with open(path + '/HMM_config.ini', 'w+') as hmm_config_file:
+            hmm_config = configparser.ConfigParser()
+            hmm_config.add_section('Configuration')
+            hmm_config.set('Configuration', 'FIX_CODE', value=str(self.__fix_code))
+            hmm_config.write(hmm_config_file)
+
+    def save_acc(self, path):
+        """
+        累加器保存
+        :param path: 累加器保存地址
+        :type path: str
+        :return:
+        """
+        path.strip('/')
+        path = path + '/HMM'
+        if not os.path.exists(path):
+            os.mkdir(path)
+        path_ksai_acc = path + '/ksai-acc'
+        path_gamma_acc = path + '/gamma-acc'
+        try:
+            os.mkdir(path_ksai_acc)
+            os.mkdir(path_gamma_acc)
+        except FileExistsError:
+            pass
+        localtime = int(time.time())  # 时间戳
+        np.save(path_ksai_acc + '/ksai_acc_%d.npy' % localtime, self.__ksai_acc)  # 保存ksai累加器
+        np.save(path_gamma_acc + '/gamma_acc_%d.npy' % localtime, self.__gamma_acc)  # 保存gamma累加器
+
+    def init_parameter(self, path):
+        """
+        参数读取
+        :param path: 参数读取地址
+        :type path: str
+        :return:
+        """
+        path.strip('/')
+        path = path + '/HMM'
+        '''读取均值、协方差、权重矩阵'''
+        transmat = np.load(path + '/transmat.npy')
+        pi = np.load(path + '/pi.npy')
+        '''将数据初始化到GMM'''
+        self.__transmat = transmat
+        self.__pi = pi
+        with open(path + '/HMM_config.ini', 'r+') as hmm_config_file:
+            hmm_config = configparser.ConfigParser()
+            hmm_config.read(hmm_config_file)
+            sections = hmm_config.sections()
+            for section in sections:
+                items = dict(hmm_config.items(section))
+                self.fix_code = int(items['fix_code'])
+
+    def init_acc(self, path):
+        """
+        收集基元参数目录下的所有acc文件，并初始化到HMM中
+        :param path: 累加器读取地址
+        :type path: str
+        :return:
+        """
+        path.strip('/')
+        path = path + '/HMM'
+        path_ksai_acc = path + '/ksai-acc'
+        path_gamma_acc = path + '/gamma-acc'
+        if os.path.exists(path_ksai_acc) and os.path.exists(path_gamma_acc):
+            self.__acc_file = True
+        else:
+            self.__acc_file = False
+            return
+        '''读取ksai_acc文件'''
+        ksai_acc = []
+        for dir in os.walk(path_ksai_acc):
+            for filename in dir[2]:
+                file = open(path_ksai_acc + '/' + filename, 'rb')
+                data = np.load(file)
+                ksai_acc.append(data)
+                file.close()
+        self.__ksai_acc = matrix_log_sum_exp(ksai_acc, axis_x=self.__statesnum - 2)
+        gamma_acc = []
+        '''读取gamma_acc文件'''
+        for dir in os.walk(path_gamma_acc):
+            for filename in dir[2]:
+                file = open(path_gamma_acc + '/' + filename, 'rb')
+                data = np.load(file)
+                gamma_acc.append(data)
+                file.close()
+        gamma_acc = np.array(gamma_acc).T
+        self.__gamma_acc = log_sum_exp(gamma_acc, vector=True)
 
     """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
     '''清除方法'''
 
-    def clear_result_cache(self):
+    def clear_result_buffer(self):
         """
         清除临时存储结果的list，用于在使用不定长度训练数据前
         :return: None
         """
         self.__result_f = None  # 前向算法结果保存
         self.__result_b = None  # 后向算法结果保存
-        self.__result_p = None  # 概率密度函数计算结果
+        # self.__result_p = None  # 概率密度函数计算结果
         self.__p = None  # 上次前向算法运算结果保存
 
     def clear_data(self):
@@ -183,7 +316,7 @@ class LHMM(DataInitialization):
     def change_t(self, t):
         """
         改变序列长度，用于在使用不定长度训练数据前
-        :param t: 新的序列长度
+        :param t: 新的序列长度[数据1长度，数据2长度，...]
         :return: None
         """
         self.__t = t
@@ -204,25 +337,33 @@ class LHMM(DataInitialization):
              前向算法
         :param result_f_index: 数据序号
         """
+        log_transmat = np.log(self.__transmat)
         '''通过概率密度函数计算计算初值'''
         self.__result_f[result_f_index][:, 0] = np.log(self.__pi) + self.__result_p[result_f_index][:, 0]
 
         '''递推计算'''
         for i in range(1, self.__t[result_f_index]):
             '''对列向量分片，使之等于子字hmm的状态数'''
-            p = LHMM.__matrix_dot(self.__result_f[result_f_index][:, i - 1], self.__transmat, axis=1)
-            self.__result_f[result_f_index][:, i] = p + self.__result_p[result_f_index][:, i]
+            p = []
+            for j in range(self.__hmm_size):
+                tmp_p_list = self.__result_f[result_f_index][:, i - 1] + log_transmat[:, j]
+                p.append(log_sum_exp(tmp_p_list))
+            self.__result_f[result_f_index][:, i] = np.array(p) + self.__result_p[result_f_index][:, i]
 
     def __backward_algorithm(self, result_b_index):
         """
              后向算法
         :param result_b_index: 数据序号
         """
-        '''如果观测矩阵为概率密度函数'''
+        log_transmat = np.log(self.__transmat)
         '''递推计算'''
         for i in range(self.__t[result_b_index] - 2, -1, -1):
-            p = LHMM.__matrix_dot(self.__result_b[result_b_index][:, i + 1], self.__transmat, axis=0)
-            self.__result_b[result_b_index][:, i] = p + self.__result_p[result_b_index][:, i + 1]
+            back_array = []
+            for j in range(self.__hmm_size):
+                beta_array = log_transmat[j, :] + self.__result_p[result_b_index][:, i + 1] \
+                             + self.__result_b[result_b_index][:, i + 1]
+                back_array.append(beta_array)
+            self.__result_b[result_b_index][:, i] = log_sum_exp(back_array, vector=True)
 
     def __generate_result(self):
         """
@@ -230,14 +371,14 @@ class LHMM(DataInitialization):
         """
         if len(self.__t) == 0:
             '''若self.__t is None,则需根据每个数据的长度初始化self.__t'''
-            self.__t = [len(self.data[index]) for index in range(len(self.data))]
+            self.__t = [len(self.data[index]) for index in range(self.datasize)]
 
         """一个result_f/result_b---------> 一个data"""
 
         if self.__result_f is None:
             self.__result_f = []
             self.__result_b = []
-            for _ in range(len(self.data)):
+            for _ in range(self.datasize):
                 self.__result_f.append(np.zeros((len(self.__states), self.__t[_])))
                 self.__result_b.append(np.zeros((len(self.__states), self.__t[_])))
             if self.__profunction is not None:
@@ -245,8 +386,8 @@ class LHMM(DataInitialization):
                 self.cal_observation_pro(self.data, self.__t, normalize=False)
 
         """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-
-        for data_index in range(len(self.data)):
+        '''计算前向/后向累计对数概率'''
+        for data_index in range(self.datasize):
             self.__forward_algorithm(data_index)
             self.__backward_algorithm(data_index)
 
@@ -258,138 +399,153 @@ class LHMM(DataInitialization):
         :param index: state状态所在位置
         :return:
         """
-        p1 = self.__result_f[result_index][index][t] * np.ones((len(self.__states),))
+        p1 = self.__result_f[result_index][index][t]
         p2 = self.__result_b[result_index][:, t + 1]
         p_arr = p1 + np.log(self.__transmat[index]) + self.__result_p[result_index][:, t + 1] + p2
         return p_arr
 
     """
-        模型训练（Baum-Welch算法/EM算法）
+        模型训练（Baum-Welch算法）
     """
     """     Expectation     """
 
-    def q_function(self):
+    def __expectation(self):
         """
-        Q函数计算
-        :return:None
-        """
-        '''模型参数当前估计值所产生的概率'''
-        p = self.__estimate()
-        if self.__p is None:
-            '''第一次迭代self.__p中的值等于此次向前算法计算出的值'''
-            self.__p = p
-        q = LHMM.__matrix_dot(p[0], self.__p.T, axis=1, log=False)
-        ''''''
-        self.__p = p
-        return q[0]
-
-    def __estimate(self):
-        """
-        计算由向前算法计算出、并保存在结果矩阵的估计值
+        计算由向前算法计算出、并保存在结果矩阵的估计值P(O|λ)
         :return: None
         """
         p = []
         if self.__result_p is None:
             self.__generate_result()
-        for i in range(len(self.__result_f)):
-            p.append(LHMM.__log_sum_exp(self.__result_f[i][:, -1]))
-        return np.array([p])
+        for i in range(self.datasize):
+            p = np.append(p, self.__result_f[i][:, -1])
+        return log_sum_exp(p)
 
     """     Maximization    """
 
-    def __maximization(self, show_a=False):
+    def __maximization(self):
         """
         最大似然估计
-        :param show_a: 显示重估后的状态转移矩阵
         """
-        def cal_ksai_1(t_, result_index):
-            """计算分母"""
-            sum_ksai = self.__two_states_probability(t_, result_index, 0)
-            for m in range(1, len(self.__states)):
-                sum_ksai = np.append(sum_ksai, self.__two_states_probability(t_, result_index, m), axis=0)
-            return LHMM.__log_sum_exp(sum_ksai)
 
-        def cal_ksai_2(i_, t_, result_index, sum_ksai):
-            """计算分子"""
-            p = self.__two_states_probability(t_, result_index, i_)
-            return p - sum_ksai
+        def cal_ksai(data_index):
+            """计算ksai值"""
+            ksai_array = []
+            for t in range(self.__t[data_index] - 1):
+                ksai_array_t = []
+                ksai_sum_value = -np.inf
+                for m in range(0, len(self.__states)):
+                    tmp_array = self.__two_states_probability(t, data_index, m)
+                    ksai_sum_value = log_sum_exp(np.append(tmp_array, ksai_sum_value))
+                    ksai_array_t.append(tmp_array)
+                ksai_array.append(np.array(ksai_array_t) - ksai_sum_value)
+            return matrix_log_sum_exp(ksai_array, axis_x=self.__hmm_size)
 
-        def cal_gamma(t_, result_index):
-            _gamma = self.__result_f[result_index][:, t_] + self.__result_b[result_index][:, t_]
-            _sum = LHMM.__log_sum_exp(_gamma)
-            return _gamma - _sum
+        def cal_gamma(data_index):
+            """计算gamma值"""
+            gamma_array = self.__result_f[data_index][:, :-1] + self.__result_b[data_index][:, :-1]
+            gamma_sum_value = log_sum_exp(gamma_array.T, vector=True)
+            gamma_array -= gamma_sum_value
+            return log_sum_exp(gamma_array, vector=True)
 
-        '''更新状态转移矩阵'''
-        size = len(self.__states)
-        ksai_list = [[[] for _ in range(size)] for _ in range(size)]
-        ksai = np.zeros((size, size))
-        gamma_list = []
-        gamma = np.zeros((size,))
-        pi_list = []
-        pi = np.zeros_like(self.__pi)
+        def cal_pi(data_index):
+            """计算pi值"""
+            pi_array = self.__result_f[data_index][:, 0] + self.__result_b[data_index][:, 0]
+            pi_sum_value = log_sum_exp(pi_array)
+            pi_array -= pi_sum_value
+            return pi_array
 
-        for index in range(len(self.data)):
-            for t in range(self.__t[index] - 1):
-                sum_ = cal_ksai_1(t, index)
-                for i in range(size):
-                    p_arr = cal_ksai_2(i, t, index, sum_)
-                    for j in range(size):
-                        ksai_list[i][j].append(p_arr[j])
-                gamma_list.append(cal_gamma(t, index))
-            pi_list.append(cal_gamma(0, index))
+        if self.datasize > 1:
+            ksai_list = []
+            gamma_list = []
+            pi_list = []
+            for index in range(self.datasize):
+                ksai_list.append(cal_ksai(index))
+                gamma_list.append(cal_gamma(index).reshape(1, -1))
+                pi_list.append(cal_pi(index).reshape(1, -1))
+            self.__ksai = matrix_log_sum_exp(ksai_list, axis_x=self.__hmm_size)
+            self.__gamma = matrix_log_sum_exp(gamma_list, axis_x=1).reshape((-1,))
 
-        '''计算ksai'''
-        for i in range(size):
-            for j in range(size):
-                ksai[i][j] = LHMM.__log_sum_exp(ksai_list[i][j])
+            if self.__fix_list[2] is False:
+                self.__pi = np.exp(matrix_log_sum_exp(pi_list, axis_x=1))
+        else:
+            self.__ksai = cal_ksai(0)
+            self.__gamma = cal_gamma(0)
+            if self.__fix_list[2] is False:
+                self.__pi = np.exp(cal_pi(0))
 
-        '''计算gamma'''
-        gamma_list = np.array(gamma_list)
-        for i in range(size):
-            gamma[i] = LHMM.__log_sum_exp(gamma_list[:, i])
+    def update_acc(self):
+        """
+        更新各基元HMM中的累加器
+        :return:
+        """
+        ksai_view = self.__ksai[1:-1, :]
+        gamma_view = self.__gamma[1:-1]
+        emit_state_num = self.__statesnum - 2  # 发射状态数
+        l_value = None
+        b_value = None
+        sum_value = None
+        for index in range(self.datasize):
+            if self.__fix_list[1] is False:
+                l_value = self.__result_f[index] + self.__result_b[index]
+                b_value = self.__result_p[index][1:-1, :]
+                sum_value = log_sum_exp(l_value.T, vector=True)
+                l_value = l_value[1:-1]
+            index_x, index_y = 0, 0
+            for hmm in self.__hmm_list:
+                if self.__fix_list[0] is False:
+                    '''更新HMM累加器'''
+                    ksai_value = ksai_view[index_y:index_y + emit_state_num, index_x:index_x + self.__statesnum]
+                    gamma_value = gamma_view[index_y:index_y + emit_state_num]
+                    hmm.add_acc(ksai_value, gamma_value)
+                if self.__fix_list[1] is False:
+                    # '''更新概率密度函数累加器'''
+                    l_value_states = l_value[index_y:index_y + emit_state_num, :]
+                    np.subtract(l_value_states, sum_value, out=l_value_states)
+                    b_value_states = b_value[index_y:index_y + emit_state_num, :]
+                    gmms = hmm.profunction[1:-1]
+                    for i in range(emit_state_num):
+                        gmm = gmms[i]
+                        gmm.update_acc(l_value_states[i, :], b_value_states[i, :], self.data[index])
+                index_y += emit_state_num
+                index_x += self.__statesnum - 2
 
-        '''计算pi'''
-        pi_list = np.array(pi_list)
-        for i in range(size):
-            pi[i] = LHMM.__log_sum_exp(pi_list[:, i])
-        self.__pi = np.exp(pi)
+    def update_param(self, show_q=False, show_a=False, c_covariance=1e-3):
+        """
+        更新参数
+        :param show_q: 显示GMM重估信息
+        :param show_a: 显示重估后的状态转移矩阵
+        :param c_covariance: 协方差纠正值
+        :return:
+        """
+        if not self.__acc_file:
+            return
+        if self.__fix_list[0] is False:
+            self.__transmat[1:-1, :] = np.exp(self.__ksai_acc - self.__gamma_acc.reshape((self.__statesnum - 2, 1)))
+        if self.__fix_list[1] is False:
+            for index in range(1, len(self.__profunction) - 1):
+                self.__profunction[index].update_param(show_q=show_q, c_covariance=c_covariance)
+        self.log.note('HMM 状态转移矩阵：\n' + str(self.__transmat), cls='i', show_console=show_a)
 
-        gamma[np.where(gamma == -float('inf'))] = 0.
-
-        self.__transmat = ksai - gamma.reshape((len(self.__states), 1))
-
-        '''规范化'''
-        for i in range(len(self.__states)):
-            normalize_num = LHMM.__log_sum_exp(self.__transmat[i])
-            if np.isinf(normalize_num):
-                '''inf相减为nan，故略去'''
-                continue
-            self.__transmat[i] -= normalize_num
-
-        self.__transmat = np.exp(self.__transmat)
-        if show_a:
-            self.log.note('\n' + str(self.__transmat), cls='i')
-
-    def baulm_welch(self, show_q=False, show_a=False):
+    def baulm_welch(self, show_q=False):
         """
             调用后自动完成迭代的方法
         :param show_q: 显示当前似然度
-        :param show_a: 显示重估后的状态转移矩阵
         :return: 收敛后的参数
         """
         '''计算前向后向结果'''
-        self.__generate_result()
         q_value = -float('inf')
         while True:
-            if show_q:
-                self.log.note('HMM 当前似然度:%f' % q_value, cls='i')
-            self.__maximization(show_a=show_a)
+            self.log.note('HMM 当前似然度:%f' % q_value, cls='i', show_console=show_q)
             self.__generate_result()
-            q_ = self.q_function()
-            if q_ > q_value:
-                q_value = q_
+            self.__maximization()
+            q_value_new = self.__expectation()
+            if q_value_new - q_value > 0.64:
+                q_value = q_value_new
             else:
+                self.update_acc()
                 break
+            self.clear_result_buffer()
 
     @staticmethod
     def viterbi(log, states, transmat, prob, pi, convert=False, end_state_back=False, show_mark_state=False):
@@ -451,9 +607,7 @@ class LHMM(DataInitialization):
             for _ in range(len(mark_state)):
                 c_mark_state[_] = states[mark_state[_]]
             c_mark_state = np.array(c_mark_state)
-            if show_mark_state:
-                log.note(c_mark_state, cls='i')
+            log.note('Viterbi Sequence:\n' + str(c_mark_state), cls='i', show_console=show_mark_state)
             return point, c_mark_state
-        if show_mark_state:
-            log.note(mark_state, cls='i')
+        log.note('Viterbi Sequence:\n' + str(mark_state), cls='i', show_console=show_mark_state)
         return point, mark_state
