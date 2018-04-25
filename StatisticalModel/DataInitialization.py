@@ -11,10 +11,9 @@ Date:2017.03.30
 
 """
 
+import sys
 import random
 import numpy as np
-import pymysql
-import sys
 
 
 class DataInitialization(object):
@@ -27,14 +26,13 @@ class DataInitialization(object):
         self.__k = 0
         """乱序数据"""
         self.__data = []
-        """数据库操作"""
-        self.__mysql = None
-        self.__sqlserver = None
+        """数据量"""
+        self.__data_size = 0
 
     def init_data(self, data=None, datapath=None, shuffle=False, continuous=True, matrix=True, hasmark=True):
         """
         从文本中获取数据
-
+        (做实验时用的方法)
         :param data: 从参数传入数据
         :param datapath: 数据文件路径
         :param shuffle: 对数据进行乱序处理，默认为False
@@ -46,6 +44,7 @@ class DataInitialization(object):
         """
         if data is not None:
             self.__data = data
+            self.__data_size = len(data)
         elif datapath is not None:
             with open(datapath) as f:
                 """打印数据说明"""
@@ -81,6 +80,7 @@ class DataInitialization(object):
                     else:
                         self.__data.append(tmpdata)
                     s = f.readline()
+                self.__data_size = len(self.__data)
         else:
             sys.stderr.write('Error: 未传入数据')
             raise Exception
@@ -89,55 +89,15 @@ class DataInitialization(object):
             """对_data做乱序处理"""
             random.shuffle(self.__data)
 
-    def init_data_from_database(self, *args, database='mysql', sql=None):
-        """
-        从数据库中提取数据
-
-        :param args: host,user,passwd,db
-        :param database: 选择数据库类型
-        :param sql: sql语句
-        :return: 数据
-        """
-
-        def mysql():
-            """MySQL数据库"""
-            if self.__mysql is None:
-                if len(args) > 1:
-                    '''传入元组'''
-                    self.__mysql = pymysql.connect(*args)
-                elif len(args) == 1:
-                    '''传入字典'''
-                    self.__mysql = pymysql.connect(**args[0])
-                else:
-                    sys.stderr.write('Error: 参数错误')
-            if sql:
-                cursor = self.__mysql.cursor()
-                try:
-                    cursor.execute(sql)
-                    self.__mysql.commit()
-                    data = []
-                    for d in cursor.fetchall():
-                        data.append(d)
-                    cursor.close()
-                except pymysql.MySQLError:
-                    self.__mysql.rollback()
-                return data
-
-        def sqlserver():
-            pass
-
-        if database is 'mysql':
-            return mysql()
-        elif database is 'sqlserver':
-            return sql()
-
     def add_data(self, data):
         """添加新数据"""
         self.__data.extend(data)
+        self.__data_size += len(data)
 
     def clear_data(self):
         """清空数据内存"""
         self.__data = []
+        self.__data_size = 0
 
     @property
     def markdata(self):
@@ -154,3 +114,7 @@ class DataInitialization(object):
     @property
     def data(self):
         return self.__data
+
+    @property
+    def datasize(self):
+        return self.__data_size
