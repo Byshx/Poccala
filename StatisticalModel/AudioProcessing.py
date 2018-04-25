@@ -416,7 +416,8 @@ class AudioProcessing(object):
         def mfcc(self, sampletime=0.025, overlap=0.5, nfft=512, cal_energy=True, d1=False, d2=False):
             """
             用于自动执行获取mfcc的方法
-            :return: N维MFCC参数（N/3 MFCC系数+ N/3 一阶差分参数+ N/3 二阶差分参数）+帧能量（此项可根据需求替换）
+            :return: [N维MFCC参数（N/3 MFCC系数+ N/3 一阶差分参数+ N/3 二阶差分参数）+帧能量（此项可根据需求替换）] * 数据帧数
+                    即： matrix.shape = (帧数，mfcc维度)
             """
             '''获取音频参数'''
             params = self.params
@@ -540,13 +541,3 @@ class AudioProcessing(object):
             mel_distance_osf = self.osf(mel_distance)
             mfcc = self.detect(mel_distance_osf, show_pic=show_pic)
             return mfcc
-
-#
-# if __name__ == '__main__':
-#     ap = AudioProcessing()
-#     mfcc = ap.MFCC()
-#     mfcc.init_audio(path=path, show_pic=True)
-#     m = mfcc.mfcc(nfft=512, d1=True, d2=True)
-#     vad = ap.VAD()
-#     vad.init_mfcc(m)
-#     m_ = vad.mfcc(show_pic=True)
