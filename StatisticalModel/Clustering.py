@@ -718,7 +718,7 @@ class Clustering(DataInitialization):
             """获得已经收敛的参数"""
             theta = {}
             for i in range(self.__mix_level):
-                theta['theta_%d' % i] = [self.__mean[i], self.__covariance[i]]
+                theta['theta_%d' % i] = [self.__mean[i], self.__covariance[i].diagonal()]
             return theta
 
         def gmm(self, x):
