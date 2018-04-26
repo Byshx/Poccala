@@ -433,19 +433,15 @@ class LHMM(DataInitialization):
             ksai_array = []
             for t in range(self.__t[data_index] - 1):
                 ksai_array_t = []
-                ksai_sum_value = -np.inf
                 for m in range(0, len(self.__states)):
                     tmp_array = self.__two_states_probability(t, data_index, m)
-                    ksai_sum_value = log_sum_exp(np.append(tmp_array, ksai_sum_value))
                     ksai_array_t.append(tmp_array)
-                ksai_array.append(np.array(ksai_array_t) - ksai_sum_value)
+                ksai_array.append(np.array(ksai_array_t))
             return matrix_log_sum_exp(ksai_array, axis_x=self.__hmm_size)
 
         def cal_gamma(data_index):
             """计算gamma值"""
             gamma_array = self.__result_f[data_index][:, :-1] + self.__result_b[data_index][:, :-1]
-            gamma_sum_value = log_sum_exp(gamma_array.T, vector=True)
-            gamma_array -= gamma_sum_value
             return log_sum_exp(gamma_array, vector=True)
 
         def cal_pi(data_index):
@@ -539,6 +535,7 @@ class LHMM(DataInitialization):
             self.log.note('HMM 当前似然度:%f' % q_value, cls='i', show_console=show_q)
             self.__generate_result()
             self.__maximization()
+            self.__maximization_2()
             q_value_new = self.__expectation()
             if q_value_new - q_value > 0.64:
                 q_value = q_value_new
