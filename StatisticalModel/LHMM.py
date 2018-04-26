@@ -535,7 +535,6 @@ class LHMM(DataInitialization):
             self.log.note('HMM 当前似然度:%f' % q_value, cls='i', show_console=show_q)
             self.__generate_result()
             self.__maximization()
-            self.__maximization_2()
             q_value_new = self.__expectation()
             if q_value_new - q_value > 0.64:
                 q_value = q_value_new
