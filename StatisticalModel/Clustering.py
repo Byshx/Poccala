@@ -34,8 +34,8 @@ class Clustering(DataInitialization):
     """
 
     class GMM(object):
-        def __init__(self, log, dimension=1, mix_level=1, data=None, alpha=None, mean=None, sigma=None, covariance=None,
-                     differentiation=True, gmm_id=0):
+        def __init__(self, log=None, dimension=1, mix_level=1, data=None, alpha=None, mean=None, sigma=None,
+                     covariance=None, differentiation=True, gmm_id=0):
             """
                 初始化参数
             :param log: 记录日志
@@ -58,7 +58,10 @@ class Clustering(DataInitialization):
             """模型数量"""
             self.__mix_level = mix_level
             """记录训练日志"""
-            self.log = log
+            if log:
+                self.log = log
+            else:
+                self.log = Clustering.LogInfoPrint()
             """初始参数"""
             if mean is None:
                 if differentiation:
@@ -767,7 +770,7 @@ class Clustering(DataInitialization):
     """
 
     class ClusterInitialization(object):
-        def __init__(self, data, k, dimension, log):
+        def __init__(self, data, k, dimension, log=None):
             """含有因变量的数据"""
             self.__data = data
             """数据维度"""
@@ -777,7 +780,10 @@ class Clustering(DataInitialization):
             """层次聚类算法得到的参数树"""
             self.__k_tree = None
             """记录日志"""
-            self.log = log
+            if log:
+                self.log = log
+            else:
+                self.log = Clustering.LogInfoPrint()
 
         '''
             距离计算
@@ -1174,3 +1180,12 @@ class Clustering(DataInitialization):
                 ann.som(self.__k, args, T=t_1, method=method)
             else:
                 ann.p_som(self.__k, args, scopev, T=t_1, T_=t_2, method=method)
+
+    class LogInfoPrint(object):
+        def __init__(self):
+            """"""
+            pass
+
+        def note(self, info, cls, show_console=True):
+            """用于训练信息输出"""
+            sys.stdout.write(info)
