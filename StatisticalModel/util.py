@@ -11,7 +11,7 @@ import numpy as np
 
 #############
 # 高斯函数常量
-G_VALUE_1 = np.log(2 * math.pi)
+G_VALUE_1 = np.log10(2 * math.pi)
 G_VALUE_2 = 2 * math.pi
 
 
@@ -63,7 +63,7 @@ def log_sum_exp(p_list, vector=False):
         max_p = np.max(v)
         if abs(max_p) == float('inf'):
             return max_p
-        r = max_p + np.log(np.sum(np.exp(v - max_p)))
+        r = max_p + np.log10(np.sum(np.exp(v - max_p)))
         return r
 
     if vector:

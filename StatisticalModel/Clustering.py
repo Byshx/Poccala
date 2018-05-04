@@ -94,9 +94,9 @@ class Clustering(DataInitialization):
             '''Accumulator'''
             np.seterr(divide='ignore')
             self.__alpha_acc = -np.inf
-            self.__mean_acc = np.log(np.zeros_like(self.__mean))
-            self.__covariance_acc = [np.log(np.zeros((self.__dimension,))) for _ in range(self.__mix_level)]
-            self.__acc = np.log(np.zeros_like(self.__alpha))
+            self.__mean_acc = np.log10(np.zeros_like(self.__mean))
+            self.__covariance_acc = [np.log10(np.zeros((self.__dimension,))) for _ in range(self.__mix_level)]
+            self.__acc = np.log10(np.zeros_like(self.__alpha))
             '''使mean值非负的偏移值'''
             self.__bias = 100.
             self.__gmm_id = gmm_id
@@ -342,7 +342,7 @@ class Clustering(DataInitialization):
             '''累加alpha_acc'''
             self.__alpha_acc = log_sum_exp(self.__alpha_acc)
             '''读取mean_acc文件'''
-            mean_acc = [np.log(np.zeros((self.__dimension, 1))) for _ in range(self.__mix_level)]
+            mean_acc = [np.log10(np.zeros((self.__dimension, 1))) for _ in range(self.__mix_level)]
             for dir in os.walk(path_mean_acc):
                 for filename in dir[2]:
                     file = open(path_mean_acc + '/' + filename, 'rb')
@@ -353,7 +353,7 @@ class Clustering(DataInitialization):
             for index in range(self.__mix_level):
                 self.__mean_acc[index] = log_sum_exp(mean_acc[index], vector=True)
             '''读取covariance_acc文件'''
-            covariance_acc = [np.log(np.zeros((self.__dimension, 1))) for _ in range(self.__mix_level)]
+            covariance_acc = [np.log10(np.zeros((self.__dimension, 1))) for _ in range(self.__mix_level)]
             for dir in os.walk(path_covariance_acc):
                 for filename in dir[2]:
                     file = open(path_covariance_acc + '/' + filename, 'rb')
@@ -419,7 +419,7 @@ class Clustering(DataInitialization):
                 j_point = 0.
                 for j in range(len(self.__data)):
                     p = cal_p(self.__data[j], data, i)
-                    j_point += p * np.log(
+                    j_point += p * np.log10(
                         p / gaussian_function(self.__data[j], self.__mean[i], self.__covariance[i], self.__dimension,
                                               standard=True))
                 j_split_list.append([i, j_point])
@@ -472,7 +472,7 @@ class Clustering(DataInitialization):
                 for j in range(len(new_mean)):
                     new_gamma[j][i] = gaussian_function(self.__data[i], new_mean[j], new_covariance[j],
                                                         self.__dimension,
-                                                        log=True) + np.log(new_alpha[j])
+                                                        log=True) + np.log10(new_alpha[j])
                     tmp_gamma_list.append(new_gamma[j][i])
                 """得到列之和，更新gamma表"""
                 new_gamma[:, i] = np.exp(new_gamma[:, i] - log_sum_exp(tmp_gamma_list)) * gamma_sum[i]
@@ -590,7 +590,7 @@ class Clustering(DataInitialization):
                 tmp_gamma_list = []
                 for j in range(self.__mix_level):
                     self.__gamma[j][i] = gaussian_function(self.__data[i], self.__mean[j], self.__covariance[j],
-                                                           self.__dimension, log=True) + np.log(
+                                                           self.__dimension, log=True) + np.log10(
                         self.__alpha[j])
                     tmp_gamma_list.append(self.__gamma[j][i])
                 """得到列之和，更新gamma表"""
@@ -605,7 +605,7 @@ class Clustering(DataInitialization):
         def q_function(self):
             gamma_exp = np.exp(self.__gamma)
             gamma_sum_1 = np.sum(gamma_exp, axis=1)
-            value_1 = np.sum(gamma_sum_1 * np.log(self.__alpha))
+            value_1 = np.sum(gamma_sum_1 * np.log10(self.__alpha))
             value_2 = 0.
             for i in range(self.__mix_level):
                 for j in range(len(self.__data)):
@@ -623,7 +623,7 @@ class Clustering(DataInitialization):
             """计算gamma_sum"""
             gamma_sum_array = log_sum_exp(self.__gamma, vector=True)
             data_t = self.__data.T
-            data_t_bias = np.log(data_t + self.__bias)
+            data_t_bias = np.log10(data_t + self.__bias)
             """计算新mean值"""
             mean_array = []
             for k in range(self.__mix_level):
@@ -633,7 +633,7 @@ class Clustering(DataInitialization):
             """计算新covariance值"""
             covariance_array = []
             for k in range(self.__mix_level):
-                covariance = log_sum_exp(self.__gamma[k, :] + np.log((data_t - new_mean[k].reshape(-1, 1)) ** 2),
+                covariance = log_sum_exp(self.__gamma[k, :] + np.log10((data_t - new_mean[k].reshape(-1, 1)) ** 2),
                                          vector=True)
                 covariance = np.exp(covariance - gamma_sum_array[k])
                 if (covariance < c_covariance).any():
@@ -660,7 +660,7 @@ class Clustering(DataInitialization):
             record_array = np.array(self.__record).T
             record_array += l_value - b_value
             o_value_t = o_value.T
-            log_o_value_t = np.log(o_value_t + self.__bias)  # 对观测值取对数
+            log_o_value_t = np.log10(o_value_t + self.__bias)  # 对观测值取对数
             ''''''
             self.__acc = log_sum_exp(np.append(record_array, self.__acc.reshape(-1, 1), axis=1), vector=True)
             '''alpha'''
@@ -673,7 +673,7 @@ class Clustering(DataInitialization):
             '''covariance'''
             for index in range(self.__mix_level):
                 self.__covariance_acc[index] = log_sum_exp(
-                    np.append(record_array[index] + np.log((o_value_t - self.__mean[index].reshape(-1, 1)) ** 2),
+                    np.append(record_array[index] + np.log10((o_value_t - self.__mean[index].reshape(-1, 1)) ** 2),
                               self.__covariance_acc[index].reshape(-1, 1), axis=1), vector=True)
             '''清除record缓存'''
             self.__record = []
@@ -753,8 +753,8 @@ class Clustering(DataInitialization):
                 p_list = []
                 for i in range(self.__mix_level):
                     p_list.append(
-                        np.log(self.__alpha[i]) + gaussian_function(x, self.__mean[i], self.__covariance[i],
-                                                                    self.__dimension, log=log, standard=standard))
+                        np.log10(self.__alpha[i]) + gaussian_function(x, self.__mean[i], self.__covariance[i],
+                                                                      self.__dimension, log=log, standard=standard))
                 if record:
                     self.__record.append(p_list)
                 p = log_sum_exp(p_list)
