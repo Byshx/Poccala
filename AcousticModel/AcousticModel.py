@@ -476,7 +476,7 @@ class AcousticModel(DataInitialization):
         filtered_mfcc = vad.mfcc()
         return filtered_mfcc
 
-    def __flat_start(self, path_list, file_count, proportion=0.25, step=1):
+    def __flat_start(self, path_list, file_count, proportion=0.25, step=1, differentiation=True, coefficient=1.):
         """
             均一起步
         计算全局均值和方差
@@ -484,6 +484,8 @@ class AcousticModel(DataInitialization):
         :param file_count: 数据总量
         :param proportion: 训练数据中，用于计算全局均值和协方差的数据占比
         :param step: 在帧中跳跃选取的跳跃步长
+        :param differentiation: GMM中各分模型参数差异化处理
+        :param coefficient: 差异化程度，区间[0,1]
         :return:
         """
         self.log.note('flat starting...', cls='i')
@@ -496,12 +498,20 @@ class AcousticModel(DataInitialization):
             p_data = np.append(p_data, data, axis=0)
         cluster = Clustering.ClusterInitialization(p_data, 1, self.__vector_size, self.log)
         mean, covariance, alpha, clustered_data = cluster.kmeans(algorithm=1, cov_matrix=True)
+        covariance_diagonal = covariance[0].diagonal()
         units = self.__loaded_units
+        ''''''
+        diff_coefficient = np.zeros((self.__mix_level, 1))
+        if differentiation:
+            '''差异化处理'''
+            assert 0 <= coefficient <= 1, '差异化系数不满足区间[0,1]'
+            diff_coefficient = (np.random.random((self.__mix_level, 1)) - np.random.random(
+                (self.__mix_level, 1))) * coefficient
         for unit in units:
             hmm = self.init_unit(unit, new_log=True)
             gmms = hmm.profunction[1: -1]
             for g in gmms:
-                g.mean = mean.repeat(self.__mix_level, axis=0)
+                g.mean = mean.repeat(self.__mix_level, axis=0) + diff_coefficient * covariance_diagonal
                 g.covariance = covariance.repeat(self.__mix_level, axis=0)
             self.__save_parameter(unit, hmm)
         self.delete_trainInfo()
@@ -670,7 +680,8 @@ class AcousticModel(DataInitialization):
             data = self.__load_audio(path[0])  # 音频数据
             yield label, data
 
-    def process_data(self, mode=1, load_line=0, init=True, proportion=0.25, step=1):
+    def process_data(self, mode=1, load_line=0, init=True, proportion=0.25, step=1, differentiation=True,
+                     coefficient=1):
         """
         处理音频数据
         :param mode: 训练方案
@@ -681,6 +692,8 @@ class AcousticModel(DataInitialization):
         :param init: 是否初始化参数(均分数据)
         :param proportion: (Flat-starting 参数) 训练数据中，用于计算全局均值和协方差的数据占比
         :param step: (Flat-starting 参数) 在帧中跳跃选取的跳跃步长
+        :param differentiation: (Flat-starting 参数) GMM中各分模型参数差异化处理
+        :param coefficient: (Flat-starting 参数) 差异化程度，区间[0,1]
         :return:
         """
         self.log.note('处理音频数据中...', cls='i')
@@ -701,7 +714,8 @@ class AcousticModel(DataInitialization):
             pool.join()
         elif mode == 2:
             if init:
-                self.__flat_start(path_list, file_count, proportion=proportion, step=step)
+                self.__flat_start(path_list, file_count, proportion=proportion, step=step,
+                                  differentiation=differentiation, coefficient=coefficient)
         else:
             raise ModeError(self.log)
         self.log.note('音频处理完成   √', cls='i')
@@ -940,7 +954,7 @@ class AcousticModel(DataInitialization):
             loc_list.append(loc[np.where(sub == set_sub[index])])
         return loc_list
 
-    def embedded(self, label, hmm_list, data_index, alter=31):
+    def embedded(self, label, hmm_list, data_index, alter=15):
         """
         嵌入式模型(构建句子级HMM)
         :param label: 标注
@@ -1019,11 +1033,11 @@ class AcousticModel(DataInitialization):
 
         def __init__(self, p=0.):
             """"""
-            np.seterr(divide='ignore')  # 忽略np.log(0.)错误
+            np.seterr(divide='ignore')  # 忽略np.log10(0.)错误
             self.__p = p
 
         def point(self, x, log=False, standard=False, record=False):
             """返回评分为p,x接受参数，但不处理"""
             if log:
-                return np.log(self.__p)
+                return np.log10(self.__p)
             return self.__p
