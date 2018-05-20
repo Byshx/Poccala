@@ -1188,4 +1188,4 @@ class Clustering(DataInitialization):
 
         def note(self, info, cls, show_console=True):
             """用于训练信息输出"""
-            sys.stdout.write(info)
+            sys.stdout.write(info + '\n')
