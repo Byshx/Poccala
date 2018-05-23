@@ -124,7 +124,8 @@ class Task(object):
                                delta_2=self.kwargs['delta_2'])
         amodel.load_unit()
         amodel.process_data(mode=mode, load_line=self.kwargs['load_line'], init=init,
-                            proportion=self.kwargs['proportion'], step=self.kwargs['step'])
+                            proportion=self.kwargs['proportion'], step=self.kwargs['step'],
+                            differentiation=self.kwargs['differentiation'], coefficient=self.kwargs['coefficient'])
 
     def parallel_train(self, env, mode=1, init=True, show_q=False, show_a=False):
         """
@@ -206,7 +207,7 @@ class Task(object):
 
 if __name__ == '__main__':
     task = Task(num=1, console=True, **args)
-    task.auto(init=True, t=2, mode=2, show_a=False, show_q=False)
+    task.auto(init=True, t=2, mode=2, show_a=True, show_q=True)
     # task.auto(init=True, t=2, mode=2)
-    task.auto(init=False, t=2, mode=1, show_a=False, show_q=False)
+    task.auto(init=False, t=2, mode=1, show_a=True, show_q=True)
     task.end()
