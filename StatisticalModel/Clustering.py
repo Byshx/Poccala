@@ -553,10 +553,10 @@ class Clustering(DataInitialization):
                 q_1 = self.q_function()
 
                 '''修正参数——删除候选行'''
-                self.__mean = np.delete(self.__mean, candidates[index], axis=0)
-                self.__covariance = np.delete(self.__covariance, candidates[index], axis=0)
-                self.__alpha = np.delete(self.__alpha, candidates[index])
-                self.__gamma = np.delete(self.__gamma, candidates[index], axis=0)
+                self.__mean = np.delete(save_mean, candidates[index], axis=0)
+                self.__covariance = np.delete(save_covariance, candidates[index], axis=0)
+                self.__alpha = np.delete(save_alpha, candidates[index])
+                self.__gamma = np.delete(save_gamma, candidates[index], axis=0)
                 self.__mix_level = save_mix_level - 3
 
                 q_2 = self.q_function()
@@ -640,7 +640,6 @@ class Clustering(DataInitialization):
                 if (covariance < c_covariance).any():
                     '''纠正协方差过小问题'''
                     self.log.note('当前计算的协方差矩阵中某些值过小，纠正至%s' % c_covariance, cls='w')
-                    print(covariance)
                     covariance[np.where(covariance < c_covariance)] = c_covariance
                 covariance_array.append(np.diag(covariance))
             new_covariance = covariance_array

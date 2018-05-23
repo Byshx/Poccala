@@ -26,18 +26,20 @@ env = {'unit_file_path': './AcousticModel/Unit',
 # 配置项
 args = {
     'task_num': 1,  # 分配任务数/参与训练的机器数
-    'unit_type': 'XIF_tone',  # 基元类型
+    'unit_type': 'XIF_tone_new',  # 基元类型
     'c_covariance': 1e-6,  # 协方差修正数值，纠正GMM中的Singular Matrix
-    'processes': 7,  # 每台机器多进程训练的进程数，要求为正整数,None为默认cpu核心数(若开启超线程，以超线程后核心数为准)
+    'processes': 1,  # 每台机器多进程训练的进程数，要求为正整数,None为默认cpu核心数(若开启超线程，以超线程后核心数为准)
     'load_line': 1,  # 标注文件中标注行所在行数(从0开始)
     'state_num': 5,  # HMM状态数
-    'mix_level': 1,  # GMM初始混合度
+    'mix_level': 4,  # GMM初始混合度
     'max_mix_level': 13,  # GMM最大混合度
     'dct_num': 13,  # 梅尔倒谱系数维度
     'delta_1': True,  # 计算一阶差分系数
     'delta_2': True,  # 计算二阶差分系数
     'proportion': 0.05,  # (Flat-starting参数) 训练数据中，用于计算全局均值和协方差的数据占比
-    'step': 25  # (Flat-starting参数)在帧中跳跃选取的跳跃步长
+    'step': 25,  # (Flat-starting参数)在帧中跳跃选取的跳跃步长,
+    'differentiation': True,  # (Flat-starting参数)GMM中各分模型参数差异化处理
+    'coefficient': 0.25  # (Flat-starting参数)差异化程度，区间[0,1]
 }
 """"""""""""""""""""
 
