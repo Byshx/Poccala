@@ -352,7 +352,7 @@ class AudioProcessing(object):
             :return:
             """
             '''滤波器的对数能量'''
-            log_energy = np.log10(s)
+            log_energy = np.log(s)
             '''三角滤波器个数'''
             filters_num = len(s[0])
             '''帧数'''
@@ -435,7 +435,7 @@ class AudioProcessing(object):
             standard_coefficient = self.dct(fbank, rank=self.__vec_num)
             '''将第一位替换为帧能量'''
             if cal_energy:
-                standard_coefficient[:, 0] = np.log10(energy)
+                standard_coefficient[:, 0] = np.log(energy)
             '''计算一阶差分系数'''
             if d1 is True:
                 delta = self.cal_delta(standard_coefficient)

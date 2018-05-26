@@ -81,8 +81,8 @@ class LHMM(DataInitialization):
         self.__ksai = np.zeros((self.__hmm_size, self.__hmm_size))
         self.__gamma = np.zeros((self.__hmm_size,))
         '''Accumulator'''
-        self.__ksai_acc = np.log10(np.zeros((self.__statesnum - 2, self.__statesnum)))
-        self.__gamma_acc = np.log10(np.zeros((self.__statesnum - 2,)))
+        self.__ksai_acc = np.log(np.zeros((self.__statesnum - 2, self.__statesnum)))
+        self.__gamma_acc = np.log(np.zeros((self.__statesnum - 2,)))
         self.__acc_file = True
         '''子HMM集合，一般为自己本身，但在Embedded Training中，状态转移矩阵包含多个子HMM'''
         if hmm_list is None:
@@ -337,9 +337,9 @@ class LHMM(DataInitialization):
              前向算法
         :param result_f_index: 数据序号
         """
-        log_transmat = np.log10(self.__transmat)
+        log_transmat = np.log(self.__transmat)
         '''通过概率密度函数计算计算初值'''
-        self.__result_f[result_f_index][:, 0] = np.log10(self.__pi) + self.__result_p[result_f_index][:, 0]
+        self.__result_f[result_f_index][:, 0] = np.log(self.__pi) + self.__result_p[result_f_index][:, 0]
 
         '''递推计算'''
         for i in range(1, self.__t[result_f_index]):
@@ -355,7 +355,7 @@ class LHMM(DataInitialization):
              后向算法
         :param result_b_index: 数据序号
         """
-        log_transmat = np.log10(self.__transmat)
+        log_transmat = np.log(self.__transmat)
         '''递推计算'''
         for i in range(self.__t[result_b_index] - 2, -1, -1):
             back_array = []
@@ -401,7 +401,7 @@ class LHMM(DataInitialization):
         """
         p1 = self.__result_f[result_index][index][t]
         p2 = self.__result_b[result_index][:, t + 1]
-        p_arr = p1 + np.log10(self.__transmat[index]) + self.__result_p[result_index][:, t + 1] + p2
+        p_arr = p1 + np.log(self.__transmat[index]) + self.__result_p[result_index][:, t + 1] + p2
         return p_arr
 
     """
@@ -568,13 +568,13 @@ class LHMM(DataInitialization):
 
         '''对数运算消除警告'''
         np.seterr(divide='ignore')
-        p_list = np.log10(pi) + prob[:, 0]
+        p_list = np.log(pi) + prob[:, 0]
         ''''''
         max_index = 0.
         for i in range(1, t):
             p_ = np.zeros_like(p_list)
             for j in range(s_len):
-                tmp = p_list + np.log10(transmat[:, j])
+                tmp = p_list + np.log(transmat[:, j])
                 max_p = tmp.max()
                 p_[j] = max_p
                 '''最大值所在index'''

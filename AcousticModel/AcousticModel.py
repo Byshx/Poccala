@@ -1033,11 +1033,11 @@ class AcousticModel(DataInitialization):
 
         def __init__(self, p=0.):
             """"""
-            np.seterr(divide='ignore')  # 忽略np.log10(0.)错误
+            np.seterr(divide='ignore')  # 忽略np.log(0.)错误
             self.__p = p
 
         def point(self, x, log=False, standard=False, record=False):
             """返回评分为p,x接受参数，但不处理"""
             if log:
-                return np.log10(self.__p)
+                return np.log(self.__p)
             return self.__p
