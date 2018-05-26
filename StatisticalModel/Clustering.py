@@ -65,7 +65,7 @@ class Clustering(DataInitialization):
             """初始参数"""
             if mean is None:
                 if differentiation:
-                    self.__mean = 1e-2 * np.random.random((mix_level, dimension))
+                    self.__mean = np.random.random((mix_level, dimension))
                 else:
                     self.__mean = np.zeros((mix_level, dimension))
             else:
@@ -73,16 +73,18 @@ class Clustering(DataInitialization):
             '''生成对角矩阵'''
             if covariance is not None:
                 self.__covariance = covariance
-            elif variance is None:
+            elif variance is not None:
+                self.__covariance = np.array([np.diag(variance[_, :]).reshape((1, dimension, dimension)) for _ in
+                                              range(mix_level)])
+            else:
                 if differentiation:
                     self.__covariance = np.diag(np.random.random((dimension,))).reshape(
                         (1, dimension, dimension)).repeat(self.__mix_level, axis=0)
+                    print(self.__covariance)
                 else:
                     self.__covariance = 1e-3 * np.eye(dimension).reshape((1, dimension, dimension)).repeat(
                         self.__mix_level, axis=0)
-            else:
-                self.__covariance = [np.diag(variance[_, :]).reshape((1, dimension, dimension)) for _ in
-                                     range(mix_level)]
+
             if alpha is None:
                 self.__alpha = 1. / mix_level * np.ones((mix_level,))
             else:
@@ -754,7 +756,7 @@ class Clustering(DataInitialization):
                 for i in range(self.__mix_level):
                     p_list.append(
                         np.log(self.__alpha[i]) + gaussian_function(x, self.__mean[i], self.__covariance[i],
-                                                                      self.__dimension, log=log, standard=standard))
+                                                                    self.__dimension, log=log, standard=standard))
                 if record:
                     self.__record.append(p_list)
                 p = log_sum_exp(p_list)
