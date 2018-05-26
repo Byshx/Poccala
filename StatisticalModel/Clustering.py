@@ -80,7 +80,6 @@ class Clustering(DataInitialization):
                 if differentiation:
                     self.__covariance = np.diag(np.random.random((dimension,))).reshape(
                         (1, dimension, dimension)).repeat(self.__mix_level, axis=0)
-                    print(self.__covariance)
                 else:
                     self.__covariance = 1e-3 * np.eye(dimension).reshape((1, dimension, dimension)).repeat(
                         self.__mix_level, axis=0)
