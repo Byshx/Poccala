@@ -81,7 +81,7 @@ class Clustering(DataInitialization):
                     self.__covariance = np.diag(np.random.random((dimension,))).reshape(
                         (1, dimension, dimension)).repeat(self.__mix_level, axis=0)
                 else:
-                    self.__covariance = 1e-3 * np.eye(dimension).reshape((1, dimension, dimension)).repeat(
+                    self.__covariance = np.eye(dimension).reshape((1, dimension, dimension)).repeat(
                         self.__mix_level, axis=0)
 
             if alpha is None:
